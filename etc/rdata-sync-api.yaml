@@ -1,0 +1,27 @@
+Name: toproxy-api
+Host: 0.0.0.0
+Port: 8895
+
+# P3000中台服务配置
+P3000:
+  Host: 116.85.40.193
+  Port: 8808
+
+# 启动模拟服务器
+GisDemo:
+  Enable: true    # 是否启用
+  Interval: 1     # 推送定位信息间隔（秒）
+
+# Gisportal服务器地址（ws）
+# ws://ip:port/securityWs/thirdParty/{token}
+GisPortal:
+  Token: "cyg-gisportal-token"
+  Host: 127.0.0.1
+  Port: 8809
+
+# P3000 redis配置
+P3000Redis:
+  Host: 127.0.0.1
+  Port: 30003
+  Pwd: D8858848FDB1ECC1625B73F59F21B2EAD6467E367B499F4FD179A5A3270BFD00
+  DB: 0
