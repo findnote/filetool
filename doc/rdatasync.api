@@ -1,0 +1,44 @@
+info(
+	title: "p3000同步服务"		// TODO: add title
+	desc: "p3000同步服务"			// TODO: add description
+	author: "chenlinhua"
+	email: "chenlinhua@cyg.com"
+)
+
+type (
+	// K-V
+	HashKV {
+		Key 	string `json:"key"`
+        Value   string `json:"value"`
+	}
+
+	// 设置实时值info
+	SetHashInfo {
+		Hash   string `json:"hash"`
+		Values []HashKV `json:"values"`
+	}
+
+	// 设置实时值请求
+	SetHashReq {
+		Tdrvs []SetHashInfo `json:"tdrvs"`
+	}
+
+	// 设置实时值响应
+	SetHashResp {
+		Success string `json:"success"`
+		Errcode string `json:"errorCode"`
+		ErrMsg  string `json:"errorMessage"`
+	}
+)
+
+@server(
+	group: datasync
+)
+
+service rdatasync-api {
+	@handler syncPing
+	post /api/v1/sync/ping ()
+	
+	@handler hashSet
+	post /api/1.0/middle/dw/sync/setHash (SetHashReq) returns (SetHashResp)
+}
