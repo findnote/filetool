@@ -3,6 +3,7 @@ module mwp3000
 go 1.15
 
 require (
+	github.com/go-co-op/gocron v1.11.0 // indirect
 	github.com/go-redis/redis/v7 v7.4.1
 	github.com/onsi/ginkgo v1.16.4 // indirect
 	github.com/onsi/gomega v1.13.0 // indirect
