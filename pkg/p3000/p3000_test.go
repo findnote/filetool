@@ -3,7 +3,6 @@ package p3000_test
 import (
 	"flag"
 	"mwp3000/api/config"
-	"mwp3000/pkg/p3000"
 	"testing"
 
 	"github.com/tal-tech/go-zero/core/conf"
@@ -14,10 +13,10 @@ var configFile = flag.String("f", "../../etc/mwp3000-api.yaml", "the config file
 func TestOrdersPostToServer(t *testing.T) {
 	LoadConfig()
 
-	var data []interface{}
-	data = append(data, "testing")
+	// var data []interface{}
+	// data = append(data, "testing")
 
-	p3000.OrdersPostToServer(data)
+	// p3000.OrdersPostToServer(data)
 }
 
 func LoadConfig() {
