@@ -11,6 +11,14 @@ type Config struct {
 		Port int
 	}
 
+	Message struct {
+		Host      string
+		Port      string
+		Subscribe []string
+		Publish   []string
+		Heartbeat int
+	}
+
 	// p3000redis
 	P3000Redis struct {
 		Host string

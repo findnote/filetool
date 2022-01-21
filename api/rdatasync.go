@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"mwp3000/pkg/p3000"
 
 	"mwp3000/api/config"
 	"mwp3000/api/internal/handler"
@@ -36,6 +37,11 @@ func main() {
 	// 启动redis Listen节点
 	go func() {
 		redisapi.InitP3000RedisListen(c)
+	}()
+
+	// 启动消息订阅服务
+	go func() {
+		p3000.StartMessage(c)
 	}()
 
 	server.Start()

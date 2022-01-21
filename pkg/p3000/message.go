@@ -1,159 +1,214 @@
 package p3000
 
 import (
+	"bufio"
 	"fmt"
+	"github.com/go-co-op/gocron"
 	log "github.com/pion/ion-log"
-	"io/ioutil"
+	"io"
+	"mwp3000/api/config"
 	"net"
 	"net/http"
-	"sync"
+	"net/http/httputil"
+	"os"
+	"regexp"
+	"strings"
 	"time"
 )
 
-// p3000消息推送
 var (
-	httpClient *http.Client
-	once       sync.Once
-	wg         sync.WaitGroup
+	isNeedReconnect = true
+	SessId          string
+	addr            string
+	ss              = gocron.NewScheduler(time.UTC)
+	conf            config.Config
 )
 
-func CreateHTTPClient() {
-	//  指定本地端口
-	localPort := net.TCPAddr{Port: 9999}
-	// 使用单例创建client
-	once.Do(func() {
-		httpClient = &http.Client{
-			Transport: &http.Transport{
-				DialContext: (&net.Dialer{
-					Timeout:   3 * time.Second,
-					KeepAlive: 30 * time.Second, //  每30s发送一次心跳来保持长连接
-					LocalAddr: &localPort,
-				}).DialContext,
-				MaxIdleConnsPerHost: 100, // 对每个host的最大连接数量(MaxIdleConnsPerHost<=MaxIdleConns)
-				IdleConnTimeout:     0,   // 多长时间未使用自动关闭连接，0表示没有限制
-			},
-		}
-	})
-}
+func StartMessage(f config.Config) {
+	conf = f
+	log.Infof("Start Message!")
 
-//func main() {
-//	CreateHTTPClient()
-//
-//	// 测试/establish
-//	err := Establish(httpClient)
-//	if err != nil {
-//		for err != nil {
-//			err = Establish(httpClient)
-//		}
-//	}
-//
-//	//  开始心跳
-//	wg.Add(1)
-//	go StartHeartBeat()
-//	wg.Wait()
-//}
-
-//
-// Establish
-//  @Description: 建立长连接
-//
-func Establish(client *http.Client) error {
-	log.Infof("sending /establish message...")
-	req, err := http.NewRequest(http.MethodPost, "http://10.7.3.197:30002/establish", nil)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Connection", "Keep-Alive")
-	if err != nil {
-		log.Errorf("create /establish request failed! reason: %v", err)
-		return err
-	}
-
-	res, err := client.Do(req)
-	if err != nil {
-		log.Errorf("send /establish request failed! reason: %v", err)
-		return err
-	}
-
-	bytes, _ := ioutil.ReadAll(res.Body)
-	fmt.Println(string(bytes))
-
-	res.Body.Close()
-
-	log.Infof("send /establish message success!")
-	return nil
-}
-
-//
-// HeartBeat
-//  @Description: 发送心跳
-//
-func HeartBeat(client *http.Client) {
-	log.Infof("sending heartbeat...")
-	req, err := http.NewRequest(http.MethodPost, "http://10.7.3.197:30002/heartbeat", nil)
-	req.Header.Set("Connection", "Keep-Alive")
-	if err != nil {
-		log.Errorf("create /heartbeat failed! reason: %v", err)
-		return
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		log.Errorf("send /heartbeat failed! reason: %v", err)
-		return
-	}
-
-	bytes, _ := ioutil.ReadAll(res.Body)
-	fmt.Println(string(bytes))
-
-	res.Body.Close()
-	log.Infof("send heartbeat success!")
-}
-
-//
-// StartHeartBeat
-//  @Description: 开始定时发送心跳
-//
-func StartHeartBeat() {
-	log.Infof("start heartbeat!")
-	defer wg.Done()
-
-	//  定时发送心跳
+	isNeedReconnect = true
 	for {
-		HeartBeat(httpClient)
-		time.Sleep(time.Second * 3)
+		if isNeedReconnect {
+			log.Infof("\n--------------connecting to server---------------")
+			log.Infof("startMessage() isNeedReconnect=%v", isNeedReconnect)
+
+			connectServer()
+		}
+
+		time.Sleep(time.Second * 5)
+	}
+}
+
+func connectServer() {
+	//  通过配置文件获取目标主机的socket
+	host := conf.Message.Host
+	port := conf.Message.Port
+	addr = host + ":" + port
+
+	client, err := NewClient()
+	if err != nil {
+		if _, t := err.(*net.OpError); t {
+			fmt.Println("Some problem connecting.")
+		} else {
+			fmt.Println("Unknown error: " + err.Error())
+		}
+	} else {
+		isNeedReconnect = false
+
+		//  注册消息处理函数
+		client.OnMessage(func(data []byte) {
+			//  暂时不处理收到的订阅消息，只打印
+			log.Infof("%s", string(data))
+		})
+
+		client.OnEstablish(func() error {
+			//  建立业务连接
+			err, str := establish(client)
+			if err != nil {
+				return err
+			}
+
+			if len(str) > 0 {
+				log.Infof("connection established! sessId: %s", str)
+				SessId = str
+			}
+			return nil
+		})
+
+		//  注册心跳发送函数
+		client.OnConnected(func() {
+			//  开始发送心跳
+			startHeartBeat(client)
+		})
+
+		//  注册重连函数
+		client.OnDisconnected(func(err error) {
+			isNeedReconnect = true
+			log.Infof("Client disconnected. isNeedReconnect=%v, err=%v", isNeedReconnect, err)
+		})
+	}
+
+	go client.listen()
+}
+
+//
+// establish
+//  @Description: 往tcp连接发送/establish的http报文
+//
+func establish(c *Client) (error, string) {
+	//  构造http报文
+	url := "http://" + addr + "/establish"
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	req.Header.Add("Host", "localhost")
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Connection", "Keep-Alive")
+	req.Header.Add("Content-Length", "0")
+	if err != nil {
+		log.Errorf("Create /establish request failed! reason: %v", err)
+		return err, ""
+	}
+
+	//  将http报文转成字节流
+	byteReq, err := httputil.DumpRequest(req, false)
+	if err != nil {
+		log.Errorf("DumpRequest() Failed! Reason: %v", err)
+		return err, ""
+	}
+
+	//log.Infof("%s", byteReq)
+	err = c.SendBytes(byteReq)
+	if err != nil {
+		return err, ""
+	}
+
+	reader := bufio.NewReader(c.conn)
+	buffer := make([]byte, 1024*10)
+	var packet []byte
+	for {
+		n, err := reader.Read(buffer)
+		if err != nil {
+			log.Infof("ReadBytes err: %v", err)
+			return err, ""
+		}
+
+		if n > 0 {
+			packet = append(packet, buffer[:n]...)
+			//  判断报文是否结束
+			if isMatch, _ := regexp.Match(`\{.*}`, packet); isMatch {
+				return nil, getSessId(packet)
+			}
+		}
 	}
 }
 
 //
-// Push
-//  @Description: 本地模拟消息中心下发推送消息
+// getSessId
+//  @Description: 从响应报文中提取sessId
+//  @param packet 响应报文
+//  @return string sessId
 //
-func Push(client *http.Client) error {
-	req, err := http.NewRequest(http.MethodGet, "http://10.7.3.245:9999/push", nil)
-	req.Header.Set("Content-Type", "application/json")
+func getSessId(packet []byte) string {
+	message := string(packet)
+	index := strings.Index(message, "key")
+	startIndex := index + len(`key":"`)
+	endIndex := len(message) - len(`"}`)
+	return message[startIndex:endIndex]
+}
+
+//
+// heartbeat
+//  @Description: 往tcp连接发送/heartbeat的http报文
+//
+func heartbeat(c *Client) {
+	//  构造http报文
+	url := "http://" + addr + "/heartbeat"
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	req.Header.Add("Host", "localhost")
+	req.Header.Add("Connection", "Keep-Alive")
+	req.Header.Add("Content-Length", "0")
 	if err != nil {
-		log.Errorf("new request failed! reason: %v", err)
-		return err
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		log.Errorf("request failed! reason: %v", err)
-		return err
+		log.Errorf("Create /heartbeat request failed! reason: %v", err)
+		return
 	}
 
-	bytes, _ := ioutil.ReadAll(res.Body)
-	fmt.Println(string(bytes))
+	//  将http报文转成字节流
+	byteReq, err := httputil.DumpRequest(req, false)
+	if err != nil {
+		log.Errorf("DumpRequest() Failed! Reason: %v", err)
+		return
+	}
 
-	res.Body.Close()
-	return nil
+	//log.Infof("%s", byteReq)
+	err = c.SendBytes(byteReq)
+	if err != nil {
+		//  对于心跳的错误不进行处理
+		return
+	}
+
+	return
+}
+
+//
+// startHeartBeat
+//  @Description: 定时发送心跳
+//
+func startHeartBeat(c *Client) {
+	//  心跳间隔通过配置文件配置
+	ss.Every(conf.Message.Heartbeat).Second().Do(func() {
+		heartbeat(c)
+	})
+
+	ss.StartAsync()
 }
 
 //
 // Subscribe
 //  @Description: 订阅主题
-//  @param topic 要订阅的主题
-//  @param sessId 长连接标识
 //
-func Subscribe(topic string, sessId string) error {
-	url := fmt.Sprintf("http://10.7.3.197:30002/%s/%s", topic, sessId)
+func Subscribe() error {
+	url := "http://" + addr + "/subscribe/" + conf.Message.Subscribe[0] + "/" + SessId
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
 		log.Errorf("create /subscribe request failed! reason: %v", err)
@@ -172,9 +227,39 @@ func Subscribe(topic string, sessId string) error {
 		return err
 	}
 
-	bytes, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println(string(bytes))
-
+	io.Copy(os.Stdout, resp.Body)
 	resp.Body.Close()
+
+	return nil
+}
+
+//
+// Publish
+//  @Description: 推送消息
+//  @param data 消息体
+//
+func Publish(data []byte) error {
+	url := "http://" + addr + "/publish/" + conf.Message.Publish[0] + "/" + SessId
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(data)))
+	if err != nil {
+		log.Errorf("create /subscribe request failed! reason: %v", err)
+		return err
+	}
+
+	//  期望接收的body类型为任意类型
+	req.Header.Add("Accept", "*/*")
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Connection", "Keep-Alive")
+
+	//  发送/subscribe报文
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Errorf("send /subscribe request failed! reson: %v", err)
+		return err
+	}
+
+	io.Copy(os.Stdout, resp.Body)
+	resp.Body.Close()
+
 	return nil
 }
