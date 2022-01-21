@@ -38,7 +38,7 @@ type (
 service rdatasync-api {
 	@handler syncPing
 	post /api/v1/sync/ping ()
-	
+
 	@handler hashSet
 	post /api/1.0/middle/dw/sync/setHash (SetHashReq) returns (SetHashResp)
 }
