@@ -79,6 +79,19 @@ func (c *Client) listen() {
 		return
 	}
 
+	topics["CYGBase:RTDB-CYGBase:modify"] = 1
+	//  订阅设备变位
+	for topic := range topics {
+		err := Subscribe(topic, defaultMessageHandler)
+		if err != nil {
+			//  订阅失败，重新连接
+			c.conn.Close()
+			c.onDisconnected(err)
+			return
+		}
+	}
+	log.Infof("Subscribe success!!")
+
 	//  开始心跳
 	go c.onConnected()
 
@@ -103,8 +116,6 @@ func (c *Client) listen() {
 				//  截取数据
 				compile, _ := regexp.Compile(`\{.*}`)
 				data := compile.Find(packet)
-
-				log.Infof("receive data: %s", string(data))
 
 				go c.onMessage(data)
 			}

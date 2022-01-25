@@ -21,10 +21,16 @@ var (
 	addr            string
 	ss              = gocron.NewScheduler(time.UTC)
 	conf            config.Config
+	topics          map[string]int
+	messageClient   *Client
 )
 
 func StartMessage(f config.Config) {
 	conf = f
+
+	//  缓存订阅过的主题
+	topics = make(map[string]int)
+
 	log.Infof("Start Message!")
 
 	isNeedReconnect = true
@@ -46,7 +52,8 @@ func connectServer() {
 	port := conf.Message.Port
 	addr = host + ":" + port
 
-	client, err := NewClient()
+	var err error
+	messageClient, err = NewClient()
 	if err != nil {
 		if _, t := err.(*net.OpError); t {
 			log.Errorf("Some problem connecting.")
@@ -56,15 +63,9 @@ func connectServer() {
 	} else {
 		isNeedReconnect = false
 
-		//  注册消息处理函数
-		client.OnMessage(func(data []byte) {
-			//  暂时不处理收到的订阅消息，只打印
-			log.Infof("%s", string(data))
-		})
-
-		client.OnEstablish(func() error {
+		messageClient.OnEstablish(func() error {
 			//  建立业务连接
-			err, str := establish(client)
+			err, str := establish()
 			if err != nil {
 				return err
 			}
@@ -77,18 +78,18 @@ func connectServer() {
 		})
 
 		//  注册心跳发送函数
-		client.OnConnected(func() {
+		messageClient.OnConnected(func() {
 			//  开始发送心跳
-			startHeartBeat(client)
+			startHeartBeat()
 		})
 
 		//  注册重连函数
-		client.OnDisconnected(func(err error) {
+		messageClient.OnDisconnected(func(err error) {
 			isNeedReconnect = true
 			log.Infof("Client disconnected. isNeedReconnect=%v, err=%v", isNeedReconnect, err)
 		})
 
-		go client.listen()
+		go messageClient.listen()
 	}
 }
 
@@ -96,7 +97,7 @@ func connectServer() {
 // establish
 //  @Description: 往tcp连接发送/establish的http报文
 //
-func establish(c *Client) (error, string) {
+func establish() (error, string) {
 	//  构造http报文
 	url := "http://" + addr + "/establish"
 	req, err := http.NewRequest(http.MethodPost, url, nil)
@@ -117,12 +118,12 @@ func establish(c *Client) (error, string) {
 	}
 
 	//log.Infof("%s", byteReq)
-	err = c.SendBytes(byteReq)
+	err = messageClient.SendBytes(byteReq)
 	if err != nil {
 		return err, ""
 	}
 
-	reader := bufio.NewReader(c.conn)
+	reader := bufio.NewReader(messageClient.conn)
 	buffer := make([]byte, 1024*10)
 	var packet []byte
 	for {
@@ -160,7 +161,7 @@ func getSessId(packet []byte) string {
 // heartbeat
 //  @Description: 往tcp连接发送/heartbeat的http报文
 //
-func heartbeat(c *Client) {
+func heartbeat() {
 	//  构造http报文
 	url := "http://" + addr + "/heartbeat"
 	req, err := http.NewRequest(http.MethodPost, url, nil)
@@ -180,7 +181,7 @@ func heartbeat(c *Client) {
 	}
 
 	//log.Infof("%s", byteReq)
-	err = c.SendBytes(byteReq)
+	err = messageClient.SendBytes(byteReq)
 	if err != nil {
 		//  对于心跳的错误不进行处理
 		return
@@ -193,10 +194,10 @@ func heartbeat(c *Client) {
 // startHeartBeat
 //  @Description: 定时发送心跳
 //
-func startHeartBeat(c *Client) {
+func startHeartBeat() {
 	//  心跳间隔通过配置文件配置
 	ss.Every(30).Second().Do(func() {
-		heartbeat(c)
+		heartbeat()
 
 		//  如果掉线重连，结束心跳线程
 		if isNeedReconnect {
@@ -213,7 +214,10 @@ func startHeartBeat(c *Client) {
 //  @Description: 订阅主题
 //	@param topic 主题 CYGBase:RTDB-CYGBase:modify
 //
-func Subscribe(topic string) error {
+func Subscribe(topic string, callback func(data []byte)) error {
+	//  缓存主题
+	topics[topic] = 1
+
 	url := "http://" + addr + "/subscribe/" + topic + "/" + SessId
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
@@ -236,6 +240,9 @@ func Subscribe(topic string) error {
 	io.Copy(os.Stdout, resp.Body)
 	resp.Body.Close()
 
+	//  注册消息处理函数
+	messageClient.OnMessage(callback)
+
 	return nil
 }
 
@@ -254,7 +261,7 @@ func Subscribe(topic string) error {
 //	}
 //	转义字符不能省略
 //
-func Publish(data string, topic string) error {
+func Publish(topic string, data string) error {
 	url := "http://" + addr + "/publish/" + topic + "/" + SessId
 
 	var req *http.Request
@@ -286,4 +293,12 @@ func Publish(data string, topic string) error {
 	resp.Body.Close()
 
 	return nil
+}
+
+//
+// defaultMessageHandler
+//  @Description: 默认消息处理器
+//
+func defaultMessageHandler(data []byte) {
+	log.Infof("data: %v", string(data))
 }
