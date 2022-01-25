@@ -2,7 +2,6 @@ package p3000
 
 import (
 	"bufio"
-	"fmt"
 	"github.com/go-co-op/gocron"
 	log "github.com/pion/ion-log"
 	"io"
@@ -50,9 +49,9 @@ func connectServer() {
 	client, err := NewClient()
 	if err != nil {
 		if _, t := err.(*net.OpError); t {
-			fmt.Println("Some problem connecting.")
+			log.Errorf("Some problem connecting.")
 		} else {
-			fmt.Println("Unknown error: " + err.Error())
+			log.Errorf("Unknown error: " + err.Error())
 		}
 	} else {
 		isNeedReconnect = false
@@ -88,9 +87,9 @@ func connectServer() {
 			isNeedReconnect = true
 			log.Infof("Client disconnected. isNeedReconnect=%v, err=%v", isNeedReconnect, err)
 		})
-	}
 
-	go client.listen()
+		go client.listen()
+	}
 }
 
 //
@@ -196,8 +195,14 @@ func heartbeat(c *Client) {
 //
 func startHeartBeat(c *Client) {
 	//  心跳间隔通过配置文件配置
-	ss.Every(conf.Message.Heartbeat).Second().Do(func() {
+	ss.Every(30).Second().Do(func() {
 		heartbeat(c)
+
+		//  如果掉线重连，结束心跳线程
+		if isNeedReconnect {
+			ss.Stop()
+			return
+		}
 	})
 
 	ss.StartAsync()
@@ -206,9 +211,10 @@ func startHeartBeat(c *Client) {
 //
 // Subscribe
 //  @Description: 订阅主题
+//	@param topic 主题 CYGBase:RTDB-CYGBase:modify
 //
-func Subscribe() error {
-	url := "http://" + addr + "/subscribe/" + conf.Message.Subscribe[0] + "/" + SessId
+func Subscribe(topic string) error {
+	url := "http://" + addr + "/subscribe/" + topic + "/" + SessId
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
 		log.Errorf("create /subscribe request failed! reason: %v", err)
@@ -237,10 +243,28 @@ func Subscribe() error {
 // Publish
 //  @Description: 推送消息
 //  @param data 消息体
+//	@param topic 主题 CYGBase:RTDB-CYGBase:modify
+//	报文格式：
+//	{
+//		"name": "",
+//		"node": "",
+//		"topic": "",
+//		"sn": "",
+//		"data": "[{\"key\":\"CYGDW:Hash:Device:1:161\",\"tvModifys\":[{\"t\":\"yx\",\"sv\":\"0\",\"dv\":\"1\",\"time\":\"\"}]}]"
+//	}
+//	转义字符不能省略
 //
-func Publish(data []byte) error {
-	url := "http://" + addr + "/publish/" + conf.Message.Publish[0] + "/" + SessId
-	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(data)))
+func Publish(data []byte, topic string) error {
+	url := "http://" + addr + "/publish/" + topic + "/" + SessId
+
+	var req *http.Request
+	var err error
+	if data != nil {
+		req, err = http.NewRequest(http.MethodPost, url, strings.NewReader(string(data)))
+	} else {
+		req, err = http.NewRequest(http.MethodPost, url, nil)
+	}
+
 	if err != nil {
 		log.Errorf("create /subscribe request failed! reason: %v", err)
 		return err

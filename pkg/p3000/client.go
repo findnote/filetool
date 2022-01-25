@@ -71,10 +71,7 @@ func (c *Client) OnEstablish(handler func() error) {
 //  @receiver c
 //
 func (c *Client) listen() {
-	//reader := bufio.NewReader(c.conn)
-	//buffer := make([]byte, 1024 * 10)
-	//var packet []byte
-
+	//  建立业务连接
 	err := c.establish()
 	if err != nil {
 		c.conn.Close()

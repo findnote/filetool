@@ -20,7 +20,7 @@ func TestSubscribe(t *testing.T) {
 	addr = host + ":" + port
 	SessId = "E7666EBA-1F47-4784-A598-FFA61FDDCFBF"
 
-	Subscribe()
+	Subscribe("CYGBase:RTDB-CYGBase:modify")
 }
 
 func TestPublish(t *testing.T) {
@@ -32,10 +32,14 @@ func TestPublish(t *testing.T) {
 	host := conf.Message.Host
 	port := conf.Message.Port
 	addr = host + ":" + port
-	SessId = "1718989F-EE49-40E9-9DB2-FCC6C7C75286"
-
+	SessId = "5707483A-07F0-47D9-9A31-E63972CB9E7A"
 	data := `{
-    "2333": "233323"
+    "name": "",
+    "node": "",
+    "topic": "",
+    "sn": "",
+    "data": "[{\"key\":\"CYGDW:Hash:Device:1:161\",\"tvModifys\":[{\"t\":\"yx\",\"sv\":\"0\",\"dv\":\"1\",\"time\":\"\"}]}]"
 }`
-	Publish([]byte(data))
+
+	Publish([]byte(data), "CYGBase:RTDB-CYGBase:modify")
 }
