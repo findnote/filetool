@@ -254,13 +254,13 @@ func Subscribe(topic string) error {
 //	}
 //	转义字符不能省略
 //
-func Publish(data []byte, topic string) error {
+func Publish(data string, topic string) error {
 	url := "http://" + addr + "/publish/" + topic + "/" + SessId
 
 	var req *http.Request
 	var err error
-	if data != nil {
-		req, err = http.NewRequest(http.MethodPost, url, strings.NewReader(string(data)))
+	if data != "" {
+		req, err = http.NewRequest(http.MethodPost, url, strings.NewReader(data))
 	} else {
 		req, err = http.NewRequest(http.MethodPost, url, nil)
 	}

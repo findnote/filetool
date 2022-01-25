@@ -41,5 +41,5 @@ func TestPublish(t *testing.T) {
     "data": "[{\"key\":\"CYGDW:Hash:Device:1:161\",\"tvModifys\":[{\"t\":\"yx\",\"sv\":\"0\",\"dv\":\"1\",\"time\":\"\"}]}]"
 }`
 
-	Publish([]byte(data), "CYGBase:RTDB-CYGBase:modify")
+	Publish(data, "CYGBase:RTDB-CYGBase:modify")
 }
